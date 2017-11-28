@@ -19,6 +19,7 @@ import org.java_websocket.server.WebSocketServer;
 
 import com.google.gson.Gson;
 import com.google.gson.JsonArray;
+import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import com.ibm.watson.developer_cloud.tone_analyzer.v3.ToneAnalyzer;
@@ -55,16 +56,22 @@ public class WebServer extends WebSocketServer{
 		
 		if(connection != null) {
 			if(connection.username == "") { //First message is always username, case 1
-				connection.username = message;  //Sets username
-				connection.usercolor = pickColor();  //Sets usercolor
 				
+				JsonElement jelement = new JsonParser().parse(message);
+				JsonObject loginData = jelement.getAsJsonObject();
+				String username = loginData.get("user").getAsString();
+				String password = loginData.get("pass").getAsString();
+				
+				connection.username = username;  //Sets username
+				connection.usercolor = pickColor();  //Sets usercolor
+				connection.server.login(username, password);  //Log this user in.
 				//Send response to client with chosen color.
 				JsonObject json = new JsonObject();
 				json.addProperty("type", "color");
 				json.addProperty("data", connection.usercolor);
-				connection.conn.send(json.toString());
+				//connection.conn.send(json.toString());
 				
-				System.out.println(new Date() + " :: User " + message + " has"
+				System.out.println(new Date() + " :: User " + username + " has"
 						+ " joined the chat using color " + connection.usercolor);
 			}
 			else { //All other messages, case 2.
@@ -102,10 +109,14 @@ public class WebServer extends WebSocketServer{
 
 	@Override
 	public void onOpen(WebSocket conn, ClientHandshake arg1) {
-		connections.add(new Connection(conn));
+		//New server instance for each user is required.
+		MainController server = new MainController();
+		
+		//Create the new Connection and add it to the array.
+		connections.add(new Connection(conn, server));
 		
 		//Send new connection history of messages.
-		if(messages.size() > 0) conn.send(jsonHistory().toString());
+		//if(messages.size() > 0) conn.send(jsonHistory().toString());
 		
 		System.out.println(new Date() + " :: New connection from origin " 
 				+ conn.getRemoteSocketAddress());
@@ -274,11 +285,28 @@ public class WebServer extends WebSocketServer{
 	 */
 	public class Connection{
 		WebSocket conn;
+		MainController server;
 		public String username = "";
 		public String usercolor = "";
+		Runnable task;
+		Thread thread;
 		
-		public Connection(WebSocket conn) {
+		public Connection(WebSocket conn, MainController server) {
 			this.conn = conn;
+			this.server = server;
+			
+			//Start the new thread to get responses
+			/*
+			task = () -> {
+				server.getResponse();
+			};
+			thread = new Thread(task);
+			thread.start();
+			*/
+		}
+		
+		public void setServer(MainController server) {
+			this.server = server;
 		}
 		
 		public void setUsername(String user) {
@@ -287,6 +315,15 @@ public class WebServer extends WebSocketServer{
 		
 		public void setUsercolor(String color) {
 			this.usercolor = color;
+		}
+		
+		public void startThread() {
+			thread.start();
+		}
+		
+		@SuppressWarnings("deprecation")
+		public void stopThread() {
+			thread.stop();
 		}
 	}
 	//========== End Connection Class ============================
