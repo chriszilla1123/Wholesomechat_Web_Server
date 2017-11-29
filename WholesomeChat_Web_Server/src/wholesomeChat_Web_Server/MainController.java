@@ -15,6 +15,7 @@ import java.net.Socket;
 import java.net.UnknownHostException;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
+import java.util.ArrayList;
 import java.util.Date;
 
 import com.google.gson.JsonObject;
@@ -27,6 +28,9 @@ public class MainController {
 	private Socket socket = null;
 	private DataInputStream input = null;
 	private DataOutputStream out = null;
+	
+	ArrayList<String> responses = new ArrayList<String>();
+	int nextResponse = 0;
 	
 	private static final String CRLF = "\r\n"; // newline
 	
@@ -93,19 +97,41 @@ public class MainController {
 	}
 	
 	@SuppressWarnings("deprecation")
-	public String getResponse() {
+	public void responseListener() {
 		String response;
 		while(true) {
 			try {
 				response = input.readLine();
 				if(response != null) {
-					return response;
+					responses.add(response);
+					//System.out.println(response);
 				}
 			}
 			catch(IOException e) {
 				System.out.println(e);
 			}
 		}
+	}
+	
+	public ArrayList<String> getAllResponses() {
+		return responses;
+	}
+	
+	public ArrayList<String> updateResponses() {
+		ArrayList<String> result = new ArrayList<String>();
+		for(int i=nextResponse; i<responses.size(); i++) {
+			result.add(responses.get(i));
+		}
+		nextResponse = responses.size();
+		return result;
+	}
+	
+	public String getNextResponse() {  //Needs more testing.
+		return responses.get(nextResponse++);
+	}
+	
+	public boolean hasNewResponse() {
+		return(nextResponse - 1 == responses.size());  //Also needs more testing.
 	}
 	
 	public String hashPass(String pass) {

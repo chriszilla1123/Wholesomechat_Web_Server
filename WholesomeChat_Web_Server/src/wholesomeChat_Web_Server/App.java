@@ -34,17 +34,20 @@ public class App {
 		Scanner userIn = new Scanner(System.in);
 		
 		Runnable task = () -> {
-			server.getResponse();
+			server.responseListener();
 		};
 		Thread thread = new Thread(task);
 		thread.start();
 		
 		server.login("cmhill", "password");
 		userIn.nextLine();
+		System.out.println(server.updateResponses());
 		server.sendMessage("Hello World!");
 		userIn.nextLine();
-		System.out.println("goodbye!");
+		System.out.println(server.updateResponses());
 		server.sendMessage("/quit");
+		userIn.nextLine();
+		System.out.println(server.updateResponses());
 		thread.stop();
 		server.close();
 		//*/
