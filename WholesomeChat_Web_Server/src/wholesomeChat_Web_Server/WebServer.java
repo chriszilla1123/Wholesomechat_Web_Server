@@ -33,13 +33,38 @@ public class WebServer extends WebSocketServer{
 	ArrayList<Message> messages = new ArrayList<Message>();
 	String colors[] = {"red", "blue", "green", "orange", "yellow", "purple"};
 	
+	MainController listenServer = new MainController();
+	Runnable listenTask;
+	Runnable broadcastTask;
+	Thread listenThread;
+	Thread broadcastThread;
+	ArrayList<String> listenResponses = new ArrayList<String>();
+	
 	public WebServer(InetSocketAddress address) {
 		super(address);
+		//Start the new thread to get responses
+		//This one ties into the 'broadcast' method.
+		listenServer.login("WebServer_User", "password");
+		listenTask = () -> {
+			listenServer.responseListener();
+		};
+		listenThread = new Thread(listenTask);
+		listenThread.start();
+		
+		broadcastTask = () -> {
+			broadcast();
+		};
+		broadcastThread = new Thread(broadcastTask);
+		broadcastThread.start();
 	}
 
 	@Override
 	public void onClose(WebSocket conn, int arg1, String arg2, boolean arg3) {
 		Connection connection = searchConnection(conn);
+		JsonObject json = new JsonObject();
+		json.addProperty("intent", "message");
+		json.addProperty("text", "/quit");
+		connection.server.send(json.toString());
 		System.out.println(new Date() + " :: User " + connection.username
 				+ " has left the chat");
 		connections.remove(connection);
@@ -62,36 +87,34 @@ public class WebServer extends WebSocketServer{
 				String username = loginData.get("user").getAsString();
 				String password = loginData.get("pass").getAsString();
 				
-				connection.username = username;  //Sets username
+				String nick = loginUser(connection, username, password);
+				
+				if(nick != null) {
+				connection.username = nick;  //Sets username
 				connection.usercolor = pickColor();  //Sets usercolor
-				connection.server.login(username, password);  //Log this user in.
+				//connection.server.login(username, password);  //Log this user in.
 				//Send response to client with chosen color.
 				JsonObject json = new JsonObject();
-				json.addProperty("type", "color");
-				json.addProperty("data", connection.usercolor);
-				//connection.conn.send(json.toString());
+				json.addProperty("type", "login");
+				//json.addProperty("color", connection.usercolor);
+				json.addProperty("user", nick);
+				connection.conn.send(json.toString());
 				
 				System.out.println(new Date() + " :: User " + username + " has"
-						+ " joined the chat using color " + connection.usercolor);
+						+ " joined the chat");
+				}
 			}
 			else { //All other messages, case 2.
-				if(isWholesome(message)) {  //Message is wholesome
-					long time = System.currentTimeMillis() /1000;
-					String username = connection.username;
-					String usercolor = connection.usercolor;
-					Message newMessage = new Message(  //Creates the new Message object
-							time, message, username, usercolor);
-					messages.add(newMessage);  //Saves the new message to the ArrayList.
-					
-					//Send message to everyone connected
-					for(int i=0; i < connections.size(); i++) {
-						connections.get(i).conn.send(jsonMessage(newMessage).toString());
-					}
+				if(true) {  //Message is wholesome
+					JsonObject json = new JsonObject();
+					json.addProperty("intent", "message");
+					json.addProperty("text", message);
+					connection.server.send(json.toString());
 					
 					System.out.println(new Date() + " :: User " + connection.username
 							+ " has sent a message: \"" + message + "\"");
 				}
-				else {  //Message isn't wholesome
+				/*else {  //Message isn't wholesome
 					JsonObject json = new JsonObject();
 					json.addProperty("type", "wholesome");
 					json.addProperty("data", false);
@@ -99,7 +122,7 @@ public class WebServer extends WebSocketServer{
 					System.out.println(new Date() + " :: User " + connection.username
 							+ " has sent an unwholesome message: \""
 							+ message + "\"");
-				}
+				}*/
 			}
 		}
 		else {
@@ -125,67 +148,6 @@ public class WebServer extends WebSocketServer{
 	@Override
 	public void onStart() {
 		
-	}
-	
-	
-	/*This will only be used if I have to keep this version as a standalone,
-	 *  otherwise the main server will be doing all the message checking.
-	 *  For now, I have it just returning true every time.
-	 */
-	public boolean isWholesome(String message) {
-		final double MAX_ANGER = 0.7;
-		final double MAX_DISGUST = 0.7;
-		final double MAX_FEAR = 0.7;
-		final double MAX_JOY = 1.0;
-		final double MAX_SADNESS = 0.7;
-		
-		JsonObject jObject = toneAnalyzer(message);
-		Gson gson = new Gson();
-		
-		return true;
-	}
-	
-	/*
-	 * Helper function for isWholesome(), this makes the watson call and
-	 *   returns the response as JSON.
-	 */
-	public JsonObject toneAnalyzer(String message) {
-		final String VERSION_DATE = "2016-05-19";
-		String watsonUser = "";
-		String watsonPass = "";
-		String userFile = "/home/chris/Documents/watson/login/user";
-		String passFile = "/home/chris/Documents/watson/login/pass";
-		
-		try {
-			FileReader fReader = new FileReader(userFile);
-			BufferedReader bReader = new BufferedReader(fReader);
-			watsonUser = bReader.readLine();
-			
-			fReader = new FileReader(passFile);
-			bReader = new BufferedReader(fReader);
-			watsonPass = bReader.readLine();
-			bReader.close();
-			fReader.close();
-		}
-		catch(FileNotFoundException f) {
-			System.out.println(new Date() + " :: Error: Watson user/pass file not found.");
-			return null;
-		}
-		catch(IOException e){
-			System.out.println(new Date() + " :: Error: Unable to open Watson user/pass file");
-			return null;
-		}
-		
-		ToneAnalyzer service = new ToneAnalyzer(VERSION_DATE,
-				watsonUser, watsonPass);
-		
-		ToneOptions toneOptions = new ToneOptions.Builder().html(message).build();
-		ToneAnalysis tone = service.tone(toneOptions).execute();
-		
-		String asString = tone.toString();
-		JsonObject asJson = (JsonObject) new JsonParser().parse(asString);
-		
-		return asJson;
 	}
 	
 	/*
@@ -215,6 +177,78 @@ public class WebServer extends WebSocketServer{
 			if(connection.conn == conn) return connection;
 		}
 		return null;
+	}
+	
+	public String loginUser(Connection conn, String user, String pass) {
+		conn.server.login(user, pass);
+		//Wait for user response
+		boolean loggedIn = false;
+		String username = null;
+		int i = 0;
+		
+		ArrayList<String> response = new ArrayList<String>();
+		while(!loggedIn) {
+			if(i >= 10) {
+				break;
+			}
+			if(conn.server.hasNewResponse()) {
+				System.out.print(".");
+				try {
+					Thread.sleep(100);
+				} catch (InterruptedException e) {
+					// TODO Auto-generated catch block
+					e.printStackTrace();
+				}
+				response = conn.updateResponses();
+				if(response.size() != 0) {
+					JsonParser parser = new JsonParser();
+					JsonObject json = parser.parse(response.get(0)).getAsJsonObject();
+					if(json.has("nick")) {
+						username = json.get("nick").getAsString();
+						System.out.println("found nick");
+						loggedIn = true;
+					}
+				}
+			}
+			i++;
+		}
+		
+		return username;
+	}
+	
+	//Constantly running process listening for new messages.
+	public void broadcast() {
+		int numResponses = 0;
+		while(true) {
+			if(listenServer.hasNewResponse()) {
+			System.out.println("");
+			try {
+				Thread.sleep(100);
+			} catch (InterruptedException e) {
+				// TODO Auto-generated catch block
+				e.printStackTrace();
+			}
+			listenResponses = listenServer.updateResponses(); 
+			if(listenResponses.size() != numResponses){
+				System.out.println("Response received!");
+				for(int i = numResponses; i < listenResponses.size(); i++){
+					JsonParser parser = new JsonParser();
+					JsonObject json = parser.parse(listenResponses.get(i)).getAsJsonObject();
+					if(json.has("text")) {
+						System.out.println("Got to this point!");
+						JsonObject message = new JsonObject();
+						message.addProperty("type", "message");
+						message.addProperty("data", json.get("text").getAsString());
+						for(Connection connection : connections) {
+							connection.conn.send(message.toString());
+						}
+					}
+				}
+				
+				numResponses = listenResponses.size();
+			}
+			}
+		}
 	}
 	
 	//Formats a single message as JSON
@@ -290,19 +324,18 @@ public class WebServer extends WebSocketServer{
 		public String usercolor = "";
 		Runnable task;
 		Thread thread;
+		ArrayList<String> responses = new ArrayList<String>();
 		
 		public Connection(WebSocket conn, MainController server) {
 			this.conn = conn;
 			this.server = server;
 			
 			//Start the new thread to get responses
-			/*
 			task = () -> {
-				server.getResponse();
+				server.responseListener();
 			};
 			thread = new Thread(task);
 			thread.start();
-			*/
 		}
 		
 		public void setServer(MainController server) {
@@ -324,6 +357,33 @@ public class WebServer extends WebSocketServer{
 		@SuppressWarnings("deprecation")
 		public void stopThread() {
 			thread.stop();
+		}
+		
+		public ArrayList<String> updateResponses() {
+			ArrayList<String> newResponses = server.updateResponses();
+			responses.addAll(newResponses);
+			return newResponses;
+		}
+		
+		public void postMessages() {
+			Runnable task = () -> {
+				if(server.hasNewResponse()) {
+					ArrayList<String> newResponses = this.updateResponses();
+					for(String response : newResponses) {
+						//conn.send();
+					}
+				}
+			};
+		}
+		
+		public void parseMessage(String message) {
+			String formatted;
+			JsonParser parser = new JsonParser();
+			JsonObject json = parser.parse(message).getAsJsonObject();
+			System.out.println(json);
+			if(json.has("text")) {
+				
+			}
 		}
 	}
 	//========== End Connection Class ============================

@@ -37,8 +37,8 @@ public class MainController {
 	public MainController() {
 		try {
 			socket = new Socket(address, port);
-			System.out.println(new Date() + " :: Connected to Main Server on "
-			+ address + ":" + port);
+			/*System.out.println(new Date() + " :: Connected to Main Server on "
+			+ address + ":" + port);*/
 			
 			input = new DataInputStream(socket.getInputStream());
 			out = new DataOutputStream(socket.getOutputStream());
@@ -131,7 +131,7 @@ public class MainController {
 	}
 	
 	public boolean hasNewResponse() {
-		return(nextResponse - 1 == responses.size());  //Also needs more testing.
+		return(nextResponse == responses.size());  //Also needs more testing.
 	}
 	
 	public String hashPass(String pass) {
